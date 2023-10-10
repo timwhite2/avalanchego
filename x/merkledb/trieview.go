@@ -96,8 +96,9 @@ type trieView struct {
 
 	db *merkleDB
 
-	// The root of the trie represented by this view.
-	root *node
+	// The nil key node
+	// It is either the root of the trie or the root of the trie is its single child node
+	sentinelNode *node
 }
 
 // NewView returns a new view on top of this Trie where the passed changes
@@ -145,7 +146,7 @@ func newTrieView(
 	parentTrie TrieView,
 	changes ViewChanges,
 ) (*trieView, error) {
-	root, err := parentTrie.getNode(db.rootPath, false /* hasValue */)
+	sentinelNode, err := parentTrie.getNode(db.sentinelPath, false /* hasValue */)
 	if err != nil {
 		if err == database.ErrNotFound {
 			return nil, ErrNoValidRoot
@@ -154,12 +155,12 @@ func newTrieView(
 	}
 
 	newView := &trieView{
-		root:       root.clone(),
-		db:         db,
-		parentTrie: parentTrie,
-		changes:    newChangeSummary(len(changes.BatchOps) + len(changes.MapOps)),
+		sentinelNode: sentinelNode.clone(),
+		db:           db,
+		parentTrie:   parentTrie,
+		changes:      newChangeSummary(len(changes.BatchOps) + len(changes.MapOps)),
 	}
-	newView.changes.nodes[db.rootPath] = &change[*node]{before: root, after: newView.root}
+	newView.changes.nodes[db.sentinelPath] = &change[*node]{before: sentinelNode, after: newView.sentinelNode}
 
 	for _, op := range changes.BatchOps {
 		key := op.Key
@@ -198,16 +199,16 @@ func newHistoricalTrieView(
 		return nil, ErrNoValidRoot
 	}
 
-	passedRootChange, ok := changes.nodes[db.rootPath]
+	passedSentinelChange, ok := changes.nodes[db.sentinelPath]
 	if !ok {
 		return nil, ErrNoValidRoot
 	}
 
 	newView := &trieView{
-		root:       passedRootChange.after,
-		db:         db,
-		parentTrie: db,
-		changes:    changes,
+		sentinelNode: passedSentinelChange.after,
+		db:           db,
+		parentTrie:   db,
+		changes:      changes,
 	}
 	// since this is a set of historical changes, all nodes have already been calculated
 	// since no new changes have occurred, no new calculations need to be done
@@ -247,9 +248,9 @@ func (t *trieView) calculateNodeIDs(ctx context.Context) error {
 		}
 
 		_ = t.db.calculateNodeIDsSema.Acquire(context.Background(), 1)
-		t.calculateNodeIDsHelper(t.root)
+		t.calculateNodeIDsHelper(t.sentinelNode)
 		t.db.calculateNodeIDsSema.Release(1)
-		t.changes.rootID = t.root.id
+		t.changes.rootID = t.getMerkleRoot()
 
 		// ensure no ancestor changes occurred during execution
 		if t.isInvalid() {
@@ -350,6 +351,26 @@ func (t *trieView) getProof(ctx context.Context, key []byte) (*Proof, error) {
 	}
 
 	closestNode := proofPath[len(proofPath)-1]
+
+	// The sentinel node is always the first node in a proof path.
+	// If the sentinel node is not required, remove it from the proofPath.
+	if !isSentinelNodeTheRoot(t.sentinelNode) {
+		proof.Path = proof.Path[1:]
+
+		// if there are no other nodes in the proof path, add the root to serve as an exclusion proof
+		if len(proof.Path) == 0 {
+			var rootNode *node
+			for index, childEntry := range t.sentinelNode.children {
+				rootNode, err = t.getNode(t.sentinelNode.key.AppendExtend(index, childEntry.compressedPath), childEntry.hasValue)
+				if err != nil {
+					return nil, err
+				}
+			}
+
+			proof.Path = []ProofNode{rootNode.asProofNode()}
+			return proof, nil
+		}
+	}
 
 	if closestNode.key == proof.Key {
 		// There is a node with the given [key].
@@ -461,7 +482,13 @@ func (t *trieView) GetRangeProof(
 
 	if len(result.StartProof) == 0 && len(result.EndProof) == 0 && len(result.KeyValues) == 0 {
 		// If the range is empty, return the root proof.
-		rootProof, err := t.getProof(ctx, rootKey)
+		proofKey := sentinelKey
+		if !isSentinelNodeTheRoot(t.sentinelNode) {
+			for index, childEntry := range t.sentinelNode.children {
+				proofKey = t.sentinelNode.key.AppendExtend(index, childEntry.compressedPath).Bytes()
+			}
+		}
+		rootProof, err := t.getProof(ctx, proofKey)
 		if err != nil {
 			return nil, err
 		}
@@ -548,7 +575,11 @@ func (t *trieView) GetMerkleRoot(ctx context.Context) (ids.ID, error) {
 	if err := t.calculateNodeIDs(ctx); err != nil {
 		return ids.Empty, err
 	}
-	return t.root.id, nil
+	return t.getMerkleRoot(), nil
+}
+
+func (t *trieView) getMerkleRoot() ids.ID {
+	return getMerkleRoot(t.sentinelNode)
 }
 
 func (t *trieView) GetValues(ctx context.Context, keys [][]byte) ([][]byte, []error) {
@@ -737,10 +768,10 @@ func (t *trieView) deleteEmptyNodes(nodePath []*node) error {
 // Always returns at least the root node.
 func (t *trieView) getPathTo(key Path) ([]*node, error) {
 	var (
-		// all node paths start at the root
-		currentNode      = t.root
+		// all node paths start at the sentinelNode since its nil key is a prefix of all keys
+		currentNode      = t.sentinelNode
 		matchedPathIndex = 0
-		nodes            = []*node{t.root}
+		nodes            = []*node{t.sentinelNode}
 	)
 
 	// while the entire path hasn't been matched

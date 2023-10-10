@@ -62,7 +62,7 @@ func Test_Proof_Verify_Bad_Data(t *testing.T) {
 		{
 			name: "odd length key path with value",
 			malform: func(proof *Proof) {
-				proof.Path[1].ValueOrHash = maybe.Some([]byte{1, 2})
+				proof.Path[0].ValueOrHash = maybe.Some([]byte{1, 2})
 			},
 			expectedErr: ErrPartialByteLengthWithValue,
 		},
@@ -150,7 +150,7 @@ func Test_RangeProof_Extra_Value(t *testing.T) {
 		context.Background(),
 		maybe.Some([]byte{1}),
 		maybe.Some([]byte{5, 5}),
-		db.root.id,
+		db.getMerkleRoot(),
 	))
 
 	proof.KeyValues = append(proof.KeyValues, KeyValue{Key: []byte{5}, Value: []byte{5}})
@@ -159,7 +159,7 @@ func Test_RangeProof_Extra_Value(t *testing.T) {
 		context.Background(),
 		maybe.Some([]byte{1}),
 		maybe.Some([]byte{5, 5}),
-		db.root.id,
+		db.getMerkleRoot(),
 	)
 	require.ErrorIs(err, ErrInvalidProof)
 }
@@ -187,7 +187,7 @@ func Test_RangeProof_Verify_Bad_Data(t *testing.T) {
 		{
 			name: "EndProof: odd length key path with value",
 			malform: func(proof *RangeProof) {
-				proof.EndProof[1].ValueOrHash = maybe.Some([]byte{1, 2})
+				proof.EndProof[0].ValueOrHash = maybe.Some([]byte{1, 2})
 			},
 			expectedErr: ErrPartialByteLengthWithValue,
 		},
@@ -253,6 +253,7 @@ func Test_Proof(t *testing.T) {
 		context.Background(),
 		ViewChanges{
 			BatchOps: []database.BatchOp{
+				{Key: []byte("key"), Value: []byte("value")},
 				{Key: []byte("key0"), Value: []byte("value0")},
 				{Key: []byte("key1"), Value: []byte("value1")},
 				{Key: []byte("key2"), Value: []byte("value2")},
@@ -271,11 +272,10 @@ func Test_Proof(t *testing.T) {
 
 	require.Len(proof.Path, 3)
 
+	require.Equal(NewPath([]byte("key"), BranchFactor16), proof.Path[0].KeyPath)
+	require.Equal(maybe.Some([]byte("value")), proof.Path[0].ValueOrHash)
 	require.Equal(NewPath([]byte("key1"), BranchFactor16), proof.Path[2].KeyPath)
 	require.Equal(maybe.Some([]byte("value1")), proof.Path[2].ValueOrHash)
-
-	require.Equal(NewPath([]byte{}, BranchFactor16), proof.Path[0].KeyPath)
-	require.True(proof.Path[0].ValueOrHash.IsNothing())
 
 	expectedRootID, err := trie.GetMerkleRoot(context.Background())
 	require.NoError(err)
@@ -523,9 +523,8 @@ func Test_RangeProof(t *testing.T) {
 	require.Equal([]byte{2}, proof.KeyValues[1].Value)
 	require.Equal([]byte{3}, proof.KeyValues[2].Value)
 
-	require.Nil(proof.EndProof[0].KeyPath.Bytes())
-	require.Equal([]byte{0}, proof.EndProof[1].KeyPath.Bytes())
-	require.Equal([]byte{3}, proof.EndProof[2].KeyPath.Bytes())
+	require.Equal([]byte{0}, proof.EndProof[0].KeyPath.Bytes())
+	require.Equal([]byte{3}, proof.EndProof[1].KeyPath.Bytes())
 
 	// only a single node here since others are duplicates in endproof
 	require.Equal([]byte{1}, proof.StartProof[0].KeyPath.Bytes())
@@ -534,7 +533,7 @@ func Test_RangeProof(t *testing.T) {
 		context.Background(),
 		maybe.Some([]byte{1}),
 		maybe.Some([]byte{3, 5}),
-		db.root.id,
+		db.getMerkleRoot(),
 	))
 }
 
@@ -578,15 +577,14 @@ func Test_RangeProof_NilStart(t *testing.T) {
 	require.Equal([]byte("value1"), proof.KeyValues[0].Value)
 	require.Equal([]byte("value2"), proof.KeyValues[1].Value)
 
-	require.Equal(NewPath([]byte("key2"), BranchFactor16), proof.EndProof[2].KeyPath, BranchFactor16)
-	require.Equal(NewPath([]byte("key2"), BranchFactor16).Take(7), proof.EndProof[1].KeyPath)
-	require.Equal(NewPath([]byte(""), BranchFactor16), proof.EndProof[0].KeyPath, BranchFactor16)
+	require.Equal(NewPath([]byte("key2"), BranchFactor16), proof.EndProof[1].KeyPath, BranchFactor16)
+	require.Equal(NewPath([]byte("key2"), BranchFactor16).Take(7), proof.EndProof[0].KeyPath)
 
 	require.NoError(proof.Verify(
 		context.Background(),
 		maybe.Nothing[[]byte](),
 		maybe.Some([]byte("key35")),
-		db.root.id,
+		db.getMerkleRoot(),
 	))
 }
 
@@ -612,15 +610,14 @@ func Test_RangeProof_NilEnd(t *testing.T) {
 
 	require.Equal([]byte{1}, proof.StartProof[0].KeyPath.Bytes())
 
-	require.Nil(proof.EndProof[0].KeyPath.Bytes())
-	require.Equal([]byte{0}, proof.EndProof[1].KeyPath.Bytes())
-	require.Equal([]byte{2}, proof.EndProof[2].KeyPath.Bytes())
+	require.Equal([]byte{0}, proof.EndProof[0].KeyPath.Bytes())
+	require.Equal([]byte{2}, proof.EndProof[1].KeyPath.Bytes())
 
 	require.NoError(proof.Verify(
 		context.Background(),
 		maybe.Some([]byte{1}),
 		maybe.Nothing[[]byte](),
-		db.root.id,
+		db.getMerkleRoot(),
 	))
 }
 
@@ -654,15 +651,14 @@ func Test_RangeProof_EmptyValues(t *testing.T) {
 	require.Len(proof.StartProof, 1)
 	require.Equal(NewPath([]byte("key1"), BranchFactor16), proof.StartProof[0].KeyPath, BranchFactor16)
 
-	require.Len(proof.EndProof, 3)
-	require.Equal(NewPath([]byte("key2"), BranchFactor16), proof.EndProof[2].KeyPath, BranchFactor16)
-	require.Equal(NewPath([]byte{}, BranchFactor16), proof.EndProof[0].KeyPath, BranchFactor16)
+	require.Len(proof.EndProof, 2)
+	require.Equal(NewPath([]byte("key2"), BranchFactor16), proof.EndProof[1].KeyPath, BranchFactor16)
 
 	require.NoError(proof.Verify(
 		context.Background(),
 		maybe.Some([]byte("key1")),
 		maybe.Some([]byte("key2")),
-		db.root.id,
+		db.getMerkleRoot(),
 	))
 }
 
@@ -797,7 +793,7 @@ func Test_ChangeProof_Verify_Bad_Data(t *testing.T) {
 		{
 			name: "odd length key path with value",
 			malform: func(proof *ChangeProof) {
-				proof.EndProof[1].ValueOrHash = maybe.Some([]byte{1, 2})
+				proof.EndProof[0].ValueOrHash = maybe.Some([]byte{1, 2})
 			},
 			expectedErr: ErrPartialByteLengthWithValue,
 		},

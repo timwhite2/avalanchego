@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"go.uber.org/zap"
-	"golang.org/x/exp/slices"
 
 	"github.com/ava-labs/avalanchego/ids"
 	"github.com/ava-labs/avalanchego/utils/logging"
@@ -393,9 +392,7 @@ func (m *Manager) findNextKey(
 		// We try to find the next key to fetch by looking at the end proof.
 		// If the end proof is empty, we have no information to use.
 		// Start fetching from the next key after [lastReceivedKey].
-		nextKey := lastReceivedKey
-		nextKey = append(nextKey, 0)
-		return maybe.Some(nextKey), nil
+		return maybe.Some(append(lastReceivedKey, 0)), nil
 	}
 
 	// We want the first key larger than the [lastReceivedKey].
@@ -429,12 +426,27 @@ func (m *Manager) findNextKey(
 		localProofNodes = localProofNodes[:len(localProofNodes)-1]
 	}
 
-	nextKey := maybe.Nothing[[]byte]()
+	// Add sentinel node back into the localProofNodes, if it is missing.
+	// Required to ensure that a common node exists in both proofs
+	if len(localProofNodes) > 0 && localProofNodes[0].KeyPath.TokensLength() != 0 {
+		localProofNodes = append(
+			[]merkledb.ProofNode{{Children: map[byte]ids.ID{localProofNodes[0].KeyPath.Token(0): ids.Empty}}},
+			localProofNodes...)
+	}
 
+	// Add sentinel node back into the endProof, if it is missing.
+	// Required to ensure that a common node exists in both proofs
+	if len(endProof) > 0 && endProof[0].KeyPath.TokensLength() != 0 {
+		endProof = append(
+			[]merkledb.ProofNode{{Children: map[byte]ids.ID{endProof[0].KeyPath.Token(0): ids.Empty}}},
+			endProof...)
+	}
+
+	nextKey := maybe.Nothing[[]byte]()
 	localProofNodeIndex := len(localProofNodes) - 1
 	receivedProofNodeIndex := len(endProof) - 1
 
-	// traverse the two proofs from the deepest nodes up to the root until a difference is found
+	// traverse the two proofs from the deepest nodes up to the sentinel node until a difference is found
 	for localProofNodeIndex >= 0 && receivedProofNodeIndex >= 0 && nextKey.IsNothing() {
 		localProofNode := localProofNodes[localProofNodeIndex]
 		receivedProofNode := endProof[receivedProofNodeIndex]
@@ -505,9 +517,7 @@ func (m *Manager) findNextKey(
 	// Set the nextKey to [lastReceivedKey] + 0, which is the first key in
 	// the open range (lastReceivedKey, rangeEnd).
 	if nextKey.HasValue() && bytes.Compare(nextKey.Value(), lastReceivedKey) <= 0 {
-		nextKeyVal := slices.Clone(lastReceivedKey)
-		nextKeyVal = append(nextKeyVal, 0)
-		nextKey = maybe.Some(nextKeyVal)
+		nextKey = maybe.Some(append(lastReceivedKey, 0))
 	}
 
 	// If the [nextKey] is larger than the end of the range, return Nothing to signal that there is no next key in range
