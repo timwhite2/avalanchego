@@ -373,3 +373,15 @@ func stringToByteSlice(value string) []byte {
 	// "safe" because we never edit the []byte
 	return unsafe.Slice(unsafe.StringData(value), len(value))
 }
+
+func (p Path) hasPrefix(skipTokens int, prefix Path) bool {
+	if p.tokensLength-skipTokens < prefix.tokensLength {
+		return false
+	}
+	for i := 0; i < prefix.tokensLength; i++ {
+		if p.Token(skipTokens+i) != prefix.Token(i) {
+			return false
+		}
+	}
+	return true
+}

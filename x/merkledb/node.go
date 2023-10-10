@@ -4,22 +4,16 @@
 package merkledb
 
 import (
+	"crypto/sha256"
+	"github.com/ava-labs/avalanchego/utils/hashing"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 
 	"github.com/ava-labs/avalanchego/ids"
-	"github.com/ava-labs/avalanchego/utils/hashing"
 	"github.com/ava-labs/avalanchego/utils/maybe"
 )
 
 const HashLength = 32
-
-// the values that go into the node's id
-type hashValues struct {
-	Children map[byte]child
-	Value    maybe.Maybe[[]byte]
-	Key      Path
-}
 
 // Representation of a node stored in the database.
 type dbNode struct {
@@ -101,12 +95,9 @@ func (n *node) calculateID(metrics merkleMetrics) {
 	}
 
 	metrics.HashCalculated()
-	bytes := codec.encodeHashValues(&hashValues{
-		Children: n.children,
-		Value:    n.valueDigest,
-		Key:      n.key,
-	})
-	n.id = hashing.ComputeHash256Array(bytes)
+	hashing := sha256.New()
+	codec.encodeHashValues(hashing, n)
+	n.id = ids.ID(hashing.Sum(nil))
 }
 
 // Set [n]'s value to [val].

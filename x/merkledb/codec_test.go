@@ -26,7 +26,7 @@ func FuzzCodecBool(f *testing.F) {
 			require := require.New(t)
 
 			codec := codec.(*codecImpl)
-			reader := bytes.NewReader(b)
+			reader := &sliceReader{data: b}
 			startLen := reader.Len()
 			got, err := codec.decodeBool(reader)
 			if err != nil {
@@ -54,7 +54,7 @@ func FuzzCodecInt(f *testing.F) {
 			require := require.New(t)
 
 			codec := codec.(*codecImpl)
-			reader := bytes.NewReader(b)
+			reader := &sliceReader{data: b}
 			startLen := reader.Len()
 			got, err := codec.decodeUint(reader)
 			if err != nil {
@@ -82,7 +82,7 @@ func FuzzCodecPath(f *testing.F) {
 			require := require.New(t)
 			for _, branchFactor := range branchFactors {
 				codec := codec.(*codecImpl)
-				reader := bytes.NewReader(b)
+				reader := &sliceReader{data: b}
 				startLen := reader.Len()
 				got, err := codec.decodePath(reader, branchFactor)
 				if err != nil {
@@ -247,18 +247,22 @@ func FuzzEncodeHashValues(f *testing.F) {
 				key := make([]byte, r.Intn(32)) // #nosec G404
 				_, _ = r.Read(key)              // #nosec G404
 
-				hv := &hashValues{
-					Children: children,
-					Value:    value,
-					Key:      NewPath(key, branchFactor),
+				hv := &node{
+					key: NewPath(key, branchFactor),
+					dbNode: dbNode{
+						children: children,
+						value:    value,
+					},
 				}
 
 				// Serialize the *hashValues with both codecs
-				hvBytes1 := codec1.encodeHashValues(hv)
-				hvBytes2 := codec2.encodeHashValues(hv)
+				buf1 := bytes.NewBuffer(make([]byte, 32))
+				buf2 := bytes.NewBuffer(make([]byte, 32))
+				codec1.encodeHashValues(buf1, hv)
+				codec2.encodeHashValues(buf2, hv)
 
 				// Make sure they're the same
-				require.Equal(hvBytes1, hvBytes2)
+				require.Equal(buf1.Bytes(), buf2.Bytes())
 			}
 		},
 	)
@@ -266,7 +270,7 @@ func FuzzEncodeHashValues(f *testing.F) {
 
 func TestCodecDecodePathLengthOverflowRegression(t *testing.T) {
 	codec := codec.(*codecImpl)
-	bytes := bytes.NewReader(binary.AppendUvarint(nil, math.MaxInt))
+	bytes := &sliceReader{data: binary.AppendUvarint(nil, math.MaxInt)}
 	_, err := codec.decodePath(bytes, BranchFactor16)
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 }
