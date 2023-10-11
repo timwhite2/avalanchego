@@ -150,7 +150,7 @@ func FuzzCodecDBNodeDeterministic(f *testing.F) {
 
 				numChildren := r.Intn(int(branchFactor)) // #nosec G404
 
-				children := map[byte]child{}
+				children := map[byte]*child{}
 				for i := 0; i < numChildren; i++ {
 					var childID ids.ID
 					_, _ = r.Read(childID[:]) // #nosec G404
@@ -158,7 +158,7 @@ func FuzzCodecDBNodeDeterministic(f *testing.F) {
 					childPathBytes := make([]byte, r.Intn(32)) // #nosec G404
 					_, _ = r.Read(childPathBytes)              // #nosec G404
 
-					children[byte(i)] = child{
+					children[byte(i)] = &child{
 						compressedPath: NewPath(childPathBytes, branchFactor),
 						id:             childID,
 					}
@@ -193,7 +193,7 @@ func TestCodecDecodeDBNode(t *testing.T) {
 
 	proof := dbNode{
 		value:    maybe.Some([]byte{1}),
-		children: map[byte]child{},
+		children: map[byte]*child{},
 	}
 
 	nodeBytes := codec.encodeDBNode(&proof, BranchFactor16)
@@ -222,14 +222,14 @@ func FuzzEncodeHashValues(f *testing.F) {
 			for _, branchFactor := range branchFactors { // Create a random *hashValues
 				r := rand.New(rand.NewSource(int64(randSeed))) // #nosec G404
 
-				children := map[byte]child{}
+				children := map[byte]*child{}
 				numChildren := r.Intn(int(branchFactor)) // #nosec G404
 				for i := 0; i < numChildren; i++ {
 					compressedPathLen := r.Intn(32) // #nosec G404
 					compressedPathBytes := make([]byte, compressedPathLen)
 					_, _ = r.Read(compressedPathBytes) // #nosec G404
 
-					children[byte(i)] = child{
+					children[byte(i)] = &child{
 						compressedPath: NewPath(compressedPathBytes, branchFactor),
 						id:             ids.GenerateTestID(),
 						hasValue:       r.Intn(2) == 1, // #nosec G404

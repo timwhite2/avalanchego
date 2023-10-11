@@ -307,7 +307,7 @@ func (t *trieView) calculateNodeIDsHelper(n *node) {
 	keyLength := n.key.tokensLength
 	for updatedChild := range updatedChildren {
 		index := updatedChild.key.Token(keyLength)
-		n.setChildEntry(index, child{
+		n.setChildEntry(index, &child{
 			compressedPath: n.children[index].compressedPath,
 			id:             updatedChild.id,
 			hasValue:       updatedChild.hasValue(),
@@ -706,7 +706,7 @@ func (t *trieView) compressNodePath(parent, node *node) error {
 		t.recordNodeDeleted(node)
 
 		var (
-			childEntry child
+			childEntry *child
 			childPath  Path
 		)
 		// There is only one child, but we don't know the index.
@@ -895,7 +895,7 @@ func (t *trieView) insert(
 	// add the existing child onto the branch node
 	branchNode.setChildEntry(
 		existingChildEntry.compressedPath.Token(commonPrefixLength),
-		child{
+		&child{
 			compressedPath: existingChildEntry.compressedPath.Skip(commonPrefixLength + 1),
 			id:             existingChildEntry.id,
 			hasValue:       existingChildEntry.hasValue,
