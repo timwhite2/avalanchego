@@ -51,6 +51,40 @@ func newDefaultConfig() Config {
 	}
 }
 
+var values = initiateValues()
+
+func initiateValues() []database.BatchOp {
+	r := rand.New(rand.NewSource(0))
+	maxKeyLen := 64
+	maxValLen := 32
+	size := 150_000
+	batch := make([]database.BatchOp, size)
+	for i := 0; i < size; i++ {
+		keyLen := r.Intn(maxKeyLen)
+		key := make([]byte, keyLen)
+		_, _ = r.Read(key)
+
+		valueLen := r.Intn(maxValLen)
+		value := make([]byte, valueLen)
+		_, _ = r.Read(value)
+		batch[i] = database.BatchOp{Key: key, Value: value}
+	}
+	return batch
+}
+
+func Test_Insert(t *testing.T) {
+	require := require.New(t)
+	db, err := getBasicDB()
+	require.NoError(err)
+	i := 0
+	for ; i < 10; i++ {
+		view, err := db.NewView(context.Background(), ViewChanges{BatchOps: values, ConsumeBytes: true})
+		require.NoError(err)
+		_, err = view.GetMerkleRoot(context.Background())
+		require.NoError(err)
+	}
+}
+
 func Test_MerkleDB_Get_Safety(t *testing.T) {
 	require := require.New(t)
 

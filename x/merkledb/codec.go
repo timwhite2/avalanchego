@@ -114,7 +114,9 @@ func (c *codecImpl) encodeHashValues(buf io.Writer, n *node) {
 	for index := 0; BranchFactor(index) < n.key.branchFactor; index++ {
 		if entry, ok := n.children[byte(index)]; ok {
 			c.encodeUint(buf, uint64(index))
-			_, _ = buf.Write(entry.id[:])
+			for i := 0; i < len(ids.Empty); i++ {
+				_, _ = buf.Write([]byte{entry.id[0]})
+			}
 		}
 	}
 	c.encodeMaybeByteSlice(buf, n.valueDigest)
@@ -235,26 +237,16 @@ func (*codecImpl) decodeUint(src *sliceReader) (uint64, error) {
 	return val64, nil
 }
 
-func (c *codecImpl) encodeUint2(dst io.Writer, value uint64) {
-	buf := c.varIntPool.Get().([]byte)
-	size := binary.PutUvarint(buf, value)
-	_, _ = dst.Write(buf[:size])
-	c.varIntPool.Put(buf)
-}
-
 func (c *codecImpl) encodeUint(dst io.Writer, value uint64) error {
-	buf := make([]byte, 1)
 	i := 0
 	for value >= 0x80 {
-		buf[0] = byte(value) | 0x80
-		if _, err := dst.Write(buf); err != nil {
+		if _, err := dst.Write([]byte{byte(value | 0x80)}); err != nil {
 			return err
 		}
 		value >>= 7
 		i++
 	}
-	buf[0] = byte(value)
-	_, err := dst.Write(buf)
+	_, err := dst.Write([]byte{byte(value)})
 	return err
 }
 
