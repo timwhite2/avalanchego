@@ -19,15 +19,13 @@ func TestValueNodeDB(t *testing.T) {
 	require := require.New(t)
 
 	baseDB := memdb.New()
-
-	size := 10
 	db := newValueNodeDB(
 		baseDB,
 		&sync.Pool{
 			New: func() interface{} { return make([]byte, 0) },
 		},
 		&mockMetrics{},
-		size,
+		100,
 		BranchFactor16,
 	)
 
