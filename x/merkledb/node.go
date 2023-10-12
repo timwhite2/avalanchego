@@ -16,8 +16,9 @@ const HashLength = 32
 
 // Representation of a node stored in the database.
 type dbNode struct {
-	value    maybe.Maybe[[]byte]
-	children []*child
+	value      maybe.Maybe[[]byte]
+	children   []*child
+	childCount int
 }
 
 type child struct {
@@ -29,7 +30,6 @@ type child struct {
 // node holds additional information on top of the dbNode that makes calculations easier to do
 type node struct {
 	dbNode
-	childCount  int
 	id          ids.ID
 	key         Path
 	nodeBytes   []byte
@@ -54,7 +54,7 @@ func newNode(parent *node, key Path) *node {
 // Parse [nodeBytes] to a node and set its key to [key].
 func parseNode(key Path, nodeBytes []byte) (*node, error) {
 	result := &node{key: key, nodeBytes: nodeBytes}
-	if err := codec.decodeNode(nodeBytes, result, key.branchFactor); err != nil {
+	if err := codec.decodeDBNode(nodeBytes, &result.dbNode, key.branchFactor); err != nil {
 		return nil, err
 	}
 
@@ -70,7 +70,7 @@ func (n *node) hasValue() bool {
 // Returns the byte representation of this node.
 func (n *node) bytes() []byte {
 	if n.nodeBytes == nil {
-		n.nodeBytes = codec.encodeNode(n, n.key.branchFactor)
+		n.nodeBytes = codec.encodeDBNode(&n.dbNode)
 	}
 
 	return n.nodeBytes
@@ -152,10 +152,10 @@ func (n *node) clone() *node {
 		id:  n.id,
 		key: n.key,
 		dbNode: dbNode{
-			value:    n.value,
-			children: slices.Clone(n.children),
+			value:      n.value,
+			children:   slices.Clone(n.children),
+			childCount: n.childCount,
 		},
-		childCount:  n.childCount,
 		valueDigest: n.valueDigest,
 		nodeBytes:   n.nodeBytes,
 	}

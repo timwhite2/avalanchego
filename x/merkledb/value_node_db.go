@@ -111,7 +111,6 @@ func (b *valueNodeBatch) Write() error {
 	dbBatch := b.db.baseDB.NewBatch()
 	for key, n := range b.ops {
 		b.db.metrics.DatabaseNodeWrite()
-		b.db.nodeCache.Put(key, n)
 		prefixedKey := addPrefixToKey(b.db.bufferPool, valueNodePrefix, key.Bytes())
 		if n == nil {
 			if err := dbBatch.Delete(prefixedKey); err != nil {
@@ -120,8 +119,8 @@ func (b *valueNodeBatch) Write() error {
 		} else if err := dbBatch.Put(prefixedKey, n.bytes()); err != nil {
 			return err
 		}
-
 		b.db.bufferPool.Put(prefixedKey)
+		b.db.nodeCache.Put(key, n)
 	}
 
 	return dbBatch.Write()

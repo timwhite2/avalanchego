@@ -257,20 +257,6 @@ func (th *trieHistory) getChangesToGetToRoot(rootID ids.ID, start maybe.Maybe[[]
 				after: changedNode.before,
 			}
 		}
-
-		for key, valueChange := range changes.values {
-			if (startPath.IsNothing() || !key.Less(startPath.Value())) &&
-				(endPath.IsNothing() || !key.Greater(endPath.Value())) {
-				if existing, ok := combinedChanges.values[key]; ok {
-					existing.after = valueChange.before
-				} else {
-					combinedChanges.values[key] = &change[maybe.Maybe[[]byte]]{
-						before: valueChange.after,
-						after:  valueChange.before,
-					}
-				}
-			}
-		}
 	}
 
 	return combinedChanges, nil

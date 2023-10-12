@@ -40,7 +40,7 @@ func TestValueNodeDB(t *testing.T) {
 	node1 := &node{
 		dbNode: dbNode{
 			value:    maybe.Some([]byte{0x01}),
-			children: make([]*child, 16),
+			children: make([]*child, BranchFactor16),
 		},
 		key: key,
 	}
@@ -76,7 +76,7 @@ func TestValueNodeDB(t *testing.T) {
 	node2 := &node{
 		dbNode: dbNode{
 			value:    maybe.Some([]byte{0x02}),
-			children: make([]*child, 16),
+			children: make([]*child, BranchFactor16),
 		},
 		key: key,
 	}

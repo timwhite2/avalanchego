@@ -1301,6 +1301,5 @@ func cacheEntrySize(p Path, n *node) int {
 	if n == nil {
 		return len(p.Bytes())
 	}
-	// nodes cache their bytes representation so the total memory consumed is roughly twice that
-	return len(p.Bytes()) + 2*len(n.bytes())
+	return len(p.Bytes()) + len(n.id) + codec.dbNodeSize(&n.dbNode) + len(n.nodeBytes)
 }

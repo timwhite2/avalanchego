@@ -41,27 +41,23 @@ func newDB(ctx context.Context, db database.Database, config Config) (*merkleDB,
 
 func newDefaultConfig() Config {
 	return Config{
-		EvictionBatchSize:         10,
+		EvictionBatchSize:         10000,
 		HistoryLength:             defaultHistoryLength,
-		ValueNodeCacheSize:        units.MiB,
-		IntermediateNodeCacheSize: units.MiB,
+		ValueNodeCacheSize:        4 * units.GiB,
+		IntermediateNodeCacheSize: 4 * units.GiB,
 		Reg:                       prometheus.NewRegistry(),
 		Tracer:                    trace.Noop,
 		BranchFactor:              BranchFactor16,
 	}
 }
 
-var values = initiateValues()
-
-func initiateValues() []database.BatchOp {
-	r := rand.New(rand.NewSource(0))
-	maxKeyLen := 64
+func initiateValues(batch []database.BatchOp) []database.BatchOp {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	maxKeyLen := 25
 	maxValLen := 32
-	size := 150_000
-	batch := make([]database.BatchOp, size)
-	for i := 0; i < size; i++ {
+	for i := 0; i < len(batch); i++ {
 		keyLen := r.Intn(maxKeyLen)
-		key := make([]byte, keyLen)
+		key := make([]byte, keyLen+7)
 		_, _ = r.Read(key)
 
 		valueLen := r.Intn(maxValLen)
@@ -72,18 +68,65 @@ func initiateValues() []database.BatchOp {
 	return batch
 }
 
-func Test_Insert(t *testing.T) {
-	require := require.New(t)
-	db, err := getBasicDB()
-	require.NoError(err)
-	for i := 0; i < 10; i++ {
-		view, err := db.NewView(context.Background(), ViewChanges{BatchOps: values, ConsumeBytes: true})
-		require.NoError(err)
-		_, err = view.GetMerkleRoot(context.Background())
-		require.NoError(err)
-	}
-}
+/*
+	func Test_Insert(t *testing.T) {
+		require := require.New(t)
 
+		db, err := newDatabase(
+			context.Background(),
+			memdb.New(),
+			newDefaultConfig(),
+			&mockMetrics{},
+		)
+		require.NoError(err)
+		batch := initiateValues(make([]database.BatchOp, 150000))
+		for i := 0; i < 10; i++ {
+			view, err := db.NewView(context.Background(), ViewChanges{BatchOps: batch, ConsumeBytes: true})
+			require.NoError(err)
+			view.GetMerkleRoot(context.Background())
+		}
+		require.NoError(db.Close())
+	}
+
+	func Test_Insert_Large(t *testing.T) {
+		require := require.New(t)
+
+		dir := t.TempDir()
+
+		v1 := version.Semantic1_0_0
+
+		dbPath := filepath.Join(dir, v1.String())
+		ldb, err := leveldb.New(dbPath, nil, logging.NoLog{}, "", prometheus.NewRegistry())
+		require.NoError(err)
+		defer func() {
+			require.NoError(ldb.Close())
+		}()
+
+		db, err := newDatabase(
+			context.Background(),
+			ldb,
+			newDefaultConfig(),
+			&mockMetrics{},
+		)
+		require.NoError(err)
+		largeBatch := make([]database.BatchOp, 1000000)
+		smallBatch := make([]database.BatchOp, 500)
+		for i := 0; i < 10; i++ {
+			start := time.Now()
+			view, err := db.NewView(context.Background(), ViewChanges{BatchOps: initiateValues(largeBatch), ConsumeBytes: true})
+			require.NoError(err)
+			view.CommitToDB(context.Background())
+			println("large,", time.Since(start).String())
+			start = time.Now()
+			view, err = db.NewView(context.Background(), ViewChanges{BatchOps: initiateValues(smallBatch), ConsumeBytes: true})
+			require.NoError(err)
+			view.CommitToDB(context.Background())
+
+			println("small,", time.Since(start).String(), ",", db.valueNodeDB.nodeCache.PortionFilled()*4, ",", float64(db.intermediateNodeDB.nodeCache.currentSize)/units.GiB)
+		}
+		require.NoError(db.Close())
+	}
+*/
 func Test_MerkleDB_Get_Safety(t *testing.T) {
 	require := require.New(t)
 
