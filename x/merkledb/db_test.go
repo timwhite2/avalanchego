@@ -76,8 +76,7 @@ func Test_Insert(t *testing.T) {
 	require := require.New(t)
 	db, err := getBasicDB()
 	require.NoError(err)
-	i := 0
-	for ; i < 10; i++ {
+	for i := 0; i < 10; i++ {
 		view, err := db.NewView(context.Background(), ViewChanges{BatchOps: values, ConsumeBytes: true})
 		require.NoError(err)
 		_, err = view.GetMerkleRoot(context.Background())

@@ -859,7 +859,7 @@ func addPathInfo(
 		// [insertChildrenLessThan, insertChildrenGreaterThan].
 		compressedPath := emptyPath(keyPath.branchFactor)
 		for index, childID := range proofNode.Children {
-			if existingChild, ok := n.children[index]; ok {
+			if existingChild := n.children[index]; existingChild != nil {
 				compressedPath = existingChild.compressedPath
 			}
 			childPath := keyPath.AppendExtend(index, compressedPath)

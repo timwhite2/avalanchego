@@ -6,7 +6,6 @@ package merkledb
 import (
 	"crypto/sha256"
 	"github.com/ava-labs/avalanchego/utils/hashing"
-	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 
 	"github.com/ava-labs/avalanchego/ids"
@@ -18,7 +17,7 @@ const HashLength = 32
 // Representation of a node stored in the database.
 type dbNode struct {
 	value    maybe.Maybe[[]byte]
-	children map[byte]*child
+	children []*child
 }
 
 type child struct {
@@ -30,6 +29,7 @@ type child struct {
 // node holds additional information on top of the dbNode that makes calculations easier to do
 type node struct {
 	dbNode
+	childCount  int
 	id          ids.ID
 	key         Path
 	nodeBytes   []byte
@@ -41,7 +41,7 @@ type node struct {
 func newNode(parent *node, key Path) *node {
 	newNode := &node{
 		dbNode: dbNode{
-			children: make(map[byte]*child, key.branchFactor),
+			children: make([]*child, key.branchFactor),
 		},
 		key: key,
 	}
@@ -53,14 +53,9 @@ func newNode(parent *node, key Path) *node {
 
 // Parse [nodeBytes] to a node and set its key to [key].
 func parseNode(key Path, nodeBytes []byte) (*node, error) {
-	n := dbNode{}
-	if err := codec.decodeDBNode(nodeBytes, &n, key.branchFactor); err != nil {
+	result := &node{key: key, nodeBytes: nodeBytes}
+	if err := codec.decodeNode(nodeBytes, result, key.branchFactor); err != nil {
 		return nil, err
-	}
-	result := &node{
-		dbNode:    n,
-		key:       key,
-		nodeBytes: nodeBytes,
 	}
 
 	result.setValueDigest()
@@ -75,7 +70,7 @@ func (n *node) hasValue() bool {
 // Returns the byte representation of this node.
 func (n *node) bytes() []byte {
 	if n.nodeBytes == nil {
-		n.nodeBytes = codec.encodeDBNode(&n.dbNode, n.key.branchFactor)
+		n.nodeBytes = codec.encodeNode(n, n.key.branchFactor)
 	}
 
 	return n.nodeBytes
@@ -132,13 +127,20 @@ func (n *node) addChild(childNode *node) {
 // Adds a child to [n] without a reference to the child node.
 func (n *node) setChildEntry(index byte, childEntry *child) {
 	n.onNodeChanged()
+	if n.children[index] == nil {
+		n.childCount++
+	}
 	n.children[index] = childEntry
 }
 
 // Removes [child] from [n]'s children.
 func (n *node) removeChild(child *node) {
 	n.onNodeChanged()
-	delete(n.children, child.key.Token(n.key.tokensLength))
+	index := child.key.Token(n.key.tokensLength)
+	if n.children[index] != nil {
+		n.childCount--
+		n.children[index] = nil
+	}
 }
 
 // clone Returns a copy of [n].
@@ -151,8 +153,9 @@ func (n *node) clone() *node {
 		key: n.key,
 		dbNode: dbNode{
 			value:    n.value,
-			children: maps.Clone(n.children),
+			children: slices.Clone(n.children),
 		},
+		childCount:  n.childCount,
 		valueDigest: n.valueDigest,
 		nodeBytes:   n.nodeBytes,
 	}
@@ -162,11 +165,13 @@ func (n *node) clone() *node {
 func (n *node) asProofNode() ProofNode {
 	pn := ProofNode{
 		KeyPath:     n.key,
-		Children:    make(map[byte]ids.ID, len(n.children)),
+		Children:    make(map[byte]ids.ID, n.key.branchFactor),
 		ValueOrHash: maybe.Bind(n.valueDigest, slices.Clone[[]byte]),
 	}
 	for index, entry := range n.children {
-		pn.Children[index] = entry.id
+		if entry != nil {
+			pn.Children[byte(index)] = entry.id
+		}
 	}
 	return pn
 }

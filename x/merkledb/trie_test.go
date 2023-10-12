@@ -746,7 +746,7 @@ func Test_Trie_ChainDeletion(t *testing.T) {
 	require.NoError(newTrie.(*trieView).calculateNodeIDs(context.Background()))
 	root, err := newTrie.getNode(emptyPath(BranchFactor16), false)
 	require.NoError(err)
-	require.Len(root.children, 1)
+	require.Equal(1, root.childCount)
 
 	newTrie, err = newTrie.NewView(
 		context.Background(),
@@ -764,7 +764,7 @@ func Test_Trie_ChainDeletion(t *testing.T) {
 	root, err = newTrie.getNode(emptyPath(BranchFactor16), false)
 	require.NoError(err)
 	// since all values have been deleted, the nodes should have been cleaned up
-	require.Empty(root.children)
+	require.Equal(0, root.childCount)
 }
 
 func Test_Trie_Invalidate_Siblings_On_Commit(t *testing.T) {
@@ -828,15 +828,15 @@ func Test_Trie_NodeCollapse(t *testing.T) {
 	require.NoError(trie.(*trieView).calculateNodeIDs(context.Background()))
 	root, err := trie.getNode(emptyPath(BranchFactor16), false)
 	require.NoError(err)
-	require.Len(root.children, 1)
+	require.Equal(1, root.childCount)
 
 	root, err = trie.getNode(emptyPath(BranchFactor16), false)
 	require.NoError(err)
-	require.Len(root.children, 1)
+	require.Equal(1, root.childCount)
 
 	firstNode, err := trie.getNode(getSingleChildPath(root), true)
 	require.NoError(err)
-	require.Len(firstNode.children, 1)
+	require.Equal(1, firstNode.childCount)
 
 	// delete the middle values
 	trie, err = trie.NewView(
@@ -854,11 +854,11 @@ func Test_Trie_NodeCollapse(t *testing.T) {
 
 	root, err = trie.getNode(emptyPath(BranchFactor16), false)
 	require.NoError(err)
-	require.Len(root.children, 1)
+	require.Equal(1, root.childCount)
 
 	firstNode, err = trie.getNode(getSingleChildPath(root), true)
 	require.NoError(err)
-	require.Len(firstNode.children, 2)
+	require.Equal(2, firstNode.childCount)
 }
 
 func Test_Trie_MultipleStates(t *testing.T) {
@@ -1201,7 +1201,9 @@ func Test_Trie_ConcurrentNewViewAndCommit(t *testing.T) {
 // Assumes this node has exactly one child.
 func getSingleChildPath(n *node) Path {
 	for index, entry := range n.children {
-		return n.key.AppendExtend(index, entry.compressedPath)
+		if entry != nil {
+			return n.key.AppendExtend(byte(index), entry.compressedPath)
+		}
 	}
 	return Path{}
 }

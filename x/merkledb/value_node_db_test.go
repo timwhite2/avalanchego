@@ -39,7 +39,8 @@ func TestValueNodeDB(t *testing.T) {
 	// Put a key-node pair.
 	node1 := &node{
 		dbNode: dbNode{
-			value: maybe.Some([]byte{0x01}),
+			value:    maybe.Some([]byte{0x01}),
+			children: make([]*child, 16),
 		},
 		key: key,
 	}
@@ -74,7 +75,8 @@ func TestValueNodeDB(t *testing.T) {
 	// Put a key-node pair and overwrite it in the same batch.
 	node2 := &node{
 		dbNode: dbNode{
-			value: maybe.Some([]byte{0x02}),
+			value:    maybe.Some([]byte{0x02}),
+			children: make([]*child, 16),
 		},
 		key: key,
 	}
@@ -132,7 +134,8 @@ func TestValueNodeDBIterator(t *testing.T) {
 		key := NewPath([]byte{byte(i)}, BranchFactor16)
 		node := &node{
 			dbNode: dbNode{
-				value: maybe.Some([]byte{byte(i)}),
+				value:    maybe.Some([]byte{byte(i)}),
+				children: make([]*child, BranchFactor16),
 			},
 			key: key,
 		}
@@ -170,7 +173,8 @@ func TestValueNodeDBIterator(t *testing.T) {
 	key := NewPath([]byte{0xFF, 0x00}, BranchFactor16)
 	n := &node{
 		dbNode: dbNode{
-			value: maybe.Some([]byte{0xFF, 0x00}),
+			value:    maybe.Some([]byte{0xFF, 0x00}),
+			children: make([]*child, BranchFactor16),
 		},
 		key: key,
 	}
@@ -181,7 +185,8 @@ func TestValueNodeDBIterator(t *testing.T) {
 	key = NewPath([]byte{0xFF, 0x01}, BranchFactor16)
 	n = &node{
 		dbNode: dbNode{
-			value: maybe.Some([]byte{0xFF, 0x01}),
+			value:    maybe.Some([]byte{0xFF, 0x01}),
+			children: make([]*child, BranchFactor16),
 		},
 		key: key,
 	}

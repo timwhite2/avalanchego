@@ -27,7 +27,7 @@ func Test_Node_Marshal(t *testing.T) {
 	data := root.bytes()
 	rootParsed, err := parseNode(NewPath([]byte(""), BranchFactor16), data)
 	require.NoError(t, err)
-	require.Len(t, rootParsed.children, 1)
+	require.Equal(t, 1, rootParsed.childCount)
 
 	rootIndex := getSingleChildPath(root).Token(root.key.tokensLength)
 	parsedIndex := getSingleChildPath(rootParsed).Token(rootParsed.key.tokensLength)

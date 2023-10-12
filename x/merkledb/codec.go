@@ -56,14 +56,14 @@ type encoderDecoder interface {
 
 type encoder interface {
 	// Assumes [n] is non-nil.
-	encodeDBNode(n *dbNode, factor BranchFactor) []byte
+	encodeNode(n *node, factor BranchFactor) []byte
 	// Assumes [hv] is non-nil.
 	encodeHashValues(buff io.Writer, n *node)
 }
 
 type decoder interface {
 	// Assumes [n] is non-nil.
-	decodeDBNode(bytes []byte, n *dbNode, factor BranchFactor) error
+	decodeNode(bytes []byte, n *node, factor BranchFactor) error
 }
 
 func newCodec() encoderDecoder {
@@ -84,20 +84,19 @@ type codecImpl struct {
 	varIntPool sync.Pool
 }
 
-func (c *codecImpl) encodeDBNode(n *dbNode, branchFactor BranchFactor) []byte {
+func (c *codecImpl) encodeNode(n *node, branchFactor BranchFactor) []byte {
 	var (
-		numChildren = len(n.children)
 		// Estimate size of [n] to prevent memory allocations
-		estimatedLen = estimatedValueLen + minVarIntLen + estimatedNodeChildLen*numChildren
+		estimatedLen = estimatedValueLen + minVarIntLen + estimatedNodeChildLen*n.childCount
 		buf          = bytes.NewBuffer(make([]byte, 0, estimatedLen))
 	)
 
 	c.encodeMaybeByteSlice(buf, n.value)
-	c.encodeUint(buf, uint64(numChildren))
+	c.encodeUint(buf, uint64(n.childCount))
 	// Note we insert children in order of increasing index
 	// for determinism.
 	for index := 0; BranchFactor(index) < branchFactor; index++ {
-		if entry, ok := n.children[byte(index)]; ok {
+		if entry := n.children[byte(index)]; entry != nil {
 			c.encodeUint(buf, uint64(index))
 			c.encodePath(buf, entry.compressedPath)
 			_, _ = buf.Write(entry.id[:])
@@ -108,11 +107,11 @@ func (c *codecImpl) encodeDBNode(n *dbNode, branchFactor BranchFactor) []byte {
 }
 
 func (c *codecImpl) encodeHashValues(buf io.Writer, n *node) {
-	c.encodeUint(buf, uint64(len(n.children)))
+	c.encodeUint(buf, uint64(n.childCount))
 
 	// ensure that the order of entries is consistent
 	for index := 0; BranchFactor(index) < n.key.branchFactor; index++ {
-		if entry, ok := n.children[byte(index)]; ok {
+		if entry := n.children[byte(index)]; entry != nil {
 			c.encodeUint(buf, uint64(index))
 			for i := 0; i < len(ids.Empty); i++ {
 				_, _ = buf.Write([]byte{entry.id[0]})
@@ -123,7 +122,7 @@ func (c *codecImpl) encodeHashValues(buf io.Writer, n *node) {
 	c.encodePath(buf, n.key)
 }
 
-func (c *codecImpl) decodeDBNode(b []byte, n *dbNode, branchFactor BranchFactor) error {
+func (c *codecImpl) decodeNode(b []byte, n *node, branchFactor BranchFactor) error {
 	if minDBNodeLen > len(b) {
 		return io.ErrUnexpectedEOF
 	}
@@ -145,8 +144,8 @@ func (c *codecImpl) decodeDBNode(b []byte, n *dbNode, branchFactor BranchFactor)
 	case numChildren > uint64(src.Len()/minChildLen):
 		return io.ErrUnexpectedEOF
 	}
-
-	n.children = make(map[byte]*child, branchFactor)
+	n.childCount = int(numChildren)
+	n.children = make([]*child, branchFactor)
 	var previousChild uint64
 	for i := uint64(0); i < numChildren; i++ {
 		index, err := c.decodeUint(src)

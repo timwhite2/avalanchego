@@ -267,11 +267,14 @@ func (t *trieView) calculateNodeIDsHelper(n *node) {
 	var (
 		// We use [wg] to wait until all descendants of [n] have been updated.
 		wg              sync.WaitGroup
-		updatedChildren = make(chan *node, len(n.children))
+		updatedChildren = make(chan *node, n.childCount)
 	)
 
-	for childIndex, child := range n.children {
-		childPath := n.key.AppendExtend(childIndex, child.compressedPath)
+	for childIndex, childEntry := range n.children {
+		if childEntry == nil {
+			continue
+		}
+		childPath := n.key.AppendExtend(byte(childIndex), childEntry.compressedPath)
 		childNodeChange, ok := t.changes.nodes[childPath]
 		if !ok {
 			// This child wasn't changed.
@@ -361,9 +364,12 @@ func (t *trieView) getProof(ctx context.Context, key []byte) (*Proof, error) {
 		if len(proof.Path) == 0 {
 			var rootNode *node
 			for index, childEntry := range t.sentinelNode.children {
-				rootNode, err = t.getNode(t.sentinelNode.key.AppendExtend(index, childEntry.compressedPath), childEntry.hasValue)
-				if err != nil {
-					return nil, err
+				if childEntry != nil {
+					rootNode, err = t.getNode(t.sentinelNode.key.AppendExtend(byte(index), childEntry.compressedPath), childEntry.hasValue)
+					if err != nil {
+						return nil, err
+					}
+					break
 				}
 			}
 
@@ -382,8 +388,8 @@ func (t *trieView) getProof(ctx context.Context, key []byte) (*Proof, error) {
 	// If there is a child at the index where the node would be
 	// if it existed, include that child in the proof.
 	nextIndex := proof.Key.Token(closestNode.key.tokensLength)
-	child, ok := closestNode.children[nextIndex]
-	if !ok {
+	child := closestNode.children[nextIndex]
+	if child == nil {
 		return proof, nil
 	}
 
@@ -485,7 +491,10 @@ func (t *trieView) GetRangeProof(
 		proofKey := sentinelKey
 		if !isSentinelNodeTheRoot(t.sentinelNode) {
 			for index, childEntry := range t.sentinelNode.children {
-				proofKey = t.sentinelNode.key.AppendExtend(index, childEntry.compressedPath).Bytes()
+				if childEntry != nil {
+					proofKey = t.sentinelNode.key.AppendExtend(byte(index), childEntry.compressedPath).Bytes()
+					break
+				}
 			}
 		}
 		rootProof, err := t.getProof(ctx, proofKey)
@@ -666,7 +675,7 @@ func (t *trieView) remove(key Path) error {
 	t.recordNodeChange(nodeToDelete)
 
 	// if the removed node has no children, the node can be removed from the trie
-	if len(nodeToDelete.children) == 0 {
+	if nodeToDelete.childCount == 0 {
 		return t.deleteEmptyNodes(nodePath)
 	}
 
@@ -697,12 +706,12 @@ func (t *trieView) compressNodePath(parent, node *node) error {
 	}
 
 	// don't collapse into this node if it's the root, doesn't have 1 child, or has a value
-	if len(node.children) != 1 || node.hasValue() {
+	if node.childCount != 1 || node.hasValue() {
 		return nil
 	}
 
 	// delete all empty nodes with a single child under [node]
-	for len(node.children) == 1 && !node.hasValue() {
+	for node.childCount == 1 && !node.hasValue() {
 		t.recordNodeDeleted(node)
 
 		var (
@@ -710,11 +719,12 @@ func (t *trieView) compressNodePath(parent, node *node) error {
 			childPath  Path
 		)
 		// There is only one child, but we don't know the index.
-		// "Cycle" over the key/values to find the only child.
-		// Note this iteration once because len(node.children) == 1.
+		// Cycle over the key/values to find the only child.
 		for index, entry := range node.children {
-			childPath = node.key.AppendExtend(index, entry.compressedPath)
-			childEntry = entry
+			if entry != nil {
+				childPath = node.key.AppendExtend(byte(index), entry.compressedPath)
+				childEntry = entry
+			}
 		}
 
 		nextNode, err := t.getNode(childPath, childEntry.hasValue)
@@ -744,7 +754,7 @@ func (t *trieView) deleteEmptyNodes(nodePath []*node) error {
 	node := nodePath[len(nodePath)-1]
 	nextParentIndex := len(nodePath) - 2
 
-	for ; nextParentIndex >= 0 && len(node.children) == 0 && !node.hasValue(); nextParentIndex-- {
+	for ; nextParentIndex >= 0 && node.childCount == 0 && !node.hasValue(); nextParentIndex-- {
 		t.recordNodeDeleted(node)
 		parent := nodePath[nextParentIndex]
 		parent.removeChild(node)
@@ -777,12 +787,12 @@ func (t *trieView) getPathTo(key Path) ([]*node, error) {
 	// while the entire path hasn't been matched
 	for matchedPathIndex < key.tokensLength {
 		// confirm that a child exists and grab its ID before attempting to load it
-		nextChildEntry, hasChild := currentNode.children[key.Token(matchedPathIndex)]
+		nextChildEntry := currentNode.children[key.Token(matchedPathIndex)]
 
 		// the current token for the child entry has now been handled, so increment the matchedPathIndex
 		matchedPathIndex += 1
 
-		if !hasChild || !key.iteratedHasPrefix(matchedPathIndex, nextChildEntry.compressedPath) {
+		if nextChildEntry == nil || !key.iteratedHasPrefix(matchedPathIndex, nextChildEntry.compressedPath) {
 			// there was no child along the path or the child that was there doesn't match the remaining path
 			return nodes, nil
 		}
@@ -842,8 +852,8 @@ func (t *trieView) insert(
 	// key that hasn't been matched yet
 	// Note that [key] has prefix [closestNodeFullPath] but exactMatch was false,
 	// so [key] must be longer than [closestNodeFullPath] and the following index and slice won't OOB.
-	existingChildEntry, hasChild := closestNode.children[key.Token(closestNodeKeyLength)]
-	if !hasChild {
+	existingChildEntry := closestNode.children[key.Token(closestNodeKeyLength)]
+	if existingChildEntry == nil {
 		// there are no existing nodes along the path [fullPath], so create a new node to insert [value]
 		newNode := newNode(
 			closestNode,
