@@ -250,7 +250,7 @@ func (t *trieView) calculateNodeIDs(ctx context.Context) error {
 		_ = t.db.calculateNodeIDsSema.Acquire(context.Background(), 1)
 		t.calculateNodeIDsHelper(t.sentinelNode)
 		t.db.calculateNodeIDsSema.Release(1)
-		t.changes.rootID = t.getMerkleRoot()
+		t.changes.rootID = getMerkleRoot(t.sentinelNode)
 
 		// ensure no ancestor changes occurred during execution
 		if t.isInvalid() {
@@ -346,6 +346,19 @@ func (t *trieView) getProof(ctx context.Context, key []byte) (*Proof, error) {
 	if err != nil {
 		return nil, err
 	}
+	root := t.getRoot()
+
+	// The sentinel node is always the first node in the path.
+	// If the sentinel node is not the root, remove it from the proofPath.
+	if proofPath[0] != root {
+		proofPath = proofPath[1:]
+	}
+
+	// if there are no nodes in the proof path, add the root to serve as an exclusion proof
+	if len(proofPath) == 0 {
+		proof.Path = []ProofNode{root.asProofNode()}
+		return proof, nil
+	}
 
 	// From root --> node from left --> right.
 	proof.Path = make([]ProofNode, len(proofPath), len(proofPath)+1)
@@ -354,29 +367,6 @@ func (t *trieView) getProof(ctx context.Context, key []byte) (*Proof, error) {
 	}
 
 	closestNode := proofPath[len(proofPath)-1]
-
-	// The sentinel node is always the first node in a proof path.
-	// If the sentinel node is not required, remove it from the proofPath.
-	if !isSentinelNodeTheRoot(t.sentinelNode) {
-		proof.Path = proof.Path[1:]
-
-		// if there are no other nodes in the proof path, add the root to serve as an exclusion proof
-		if len(proof.Path) == 0 {
-			var rootNode *node
-			for index, childEntry := range t.sentinelNode.children {
-				if childEntry != nil {
-					rootNode, err = t.getNode(t.sentinelNode.key.AppendExtend(byte(index), childEntry.compressedPath), childEntry.hasValue)
-					if err != nil {
-						return nil, err
-					}
-					break
-				}
-			}
-
-			proof.Path = []ProofNode{rootNode.asProofNode()}
-			return proof, nil
-		}
-	}
 
 	if closestNode.key == proof.Key {
 		// There is a node with the given [key].
@@ -488,16 +478,7 @@ func (t *trieView) GetRangeProof(
 
 	if len(result.StartProof) == 0 && len(result.EndProof) == 0 && len(result.KeyValues) == 0 {
 		// If the range is empty, return the root proof.
-		proofKey := sentinelKey
-		if !isSentinelNodeTheRoot(t.sentinelNode) {
-			for index, childEntry := range t.sentinelNode.children {
-				if childEntry != nil {
-					proofKey = t.sentinelNode.key.AppendExtend(byte(index), childEntry.compressedPath).Bytes()
-					break
-				}
-			}
-		}
-		rootProof, err := t.getProof(ctx, proofKey)
+		rootProof, err := t.getProof(ctx, t.getRoot().key.Bytes())
 		if err != nil {
 			return nil, err
 		}
@@ -584,11 +565,7 @@ func (t *trieView) GetMerkleRoot(ctx context.Context) (ids.ID, error) {
 	if err := t.calculateNodeIDs(ctx); err != nil {
 		return ids.Empty, err
 	}
-	return t.getMerkleRoot(), nil
-}
-
-func (t *trieView) getMerkleRoot() ids.ID {
-	return getMerkleRoot(t.sentinelNode)
+	return getMerkleRoot(t.sentinelNode), nil
 }
 
 func (t *trieView) GetValues(ctx context.Context, keys [][]byte) ([][]byte, []error) {
@@ -931,6 +908,21 @@ func (t *trieView) recordNodeDeleted(after *node) {
 	}
 
 	t.recordKeyChange(after.key, nil)
+}
+
+func (t *trieView) getRoot() *node {
+	if !isSentinelNodeTheRoot(t.sentinelNode) {
+		// sentinelNode has one child, which is the root
+		for index, childEntry := range t.sentinelNode.children {
+			if childEntry != nil {
+				childPath := t.sentinelNode.key.AppendExtend(byte(index), childEntry.compressedPath)
+				root, _ := t.getNode(childPath, childEntry.hasValue)
+				return root
+			}
+		}
+	}
+
+	return t.sentinelNode
 }
 
 // Records that the node associated with the given key has been changed.
